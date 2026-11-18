@@ -2,6 +2,11 @@ node_modules/
 dist/
 *.log
 
+# local SQLite dev db (the Fly volume holds the real one at /data/app.db)
+dev.db
+dev.db-shm
+dev.db-wal
+
 # editor and OS junk
 .DS_Store
 ._*
