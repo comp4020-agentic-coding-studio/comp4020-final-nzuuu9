@@ -6,12 +6,15 @@ import {
   ensureParticipant,
   getOwnResponses,
   getRoom,
+  getRoomStatus,
   hasSubmitted,
   isOrganiser,
   submitResponse,
   ValidationError,
   type Choice,
+  type RoomStatus,
 } from "./rooms.ts";
+import { broadcast, subscribe, writeEvent } from "./live.ts";
 import { escapeHtml, page } from "./html.ts";
 
 const README = readFileSync("README.md", "utf8");
@@ -96,6 +99,28 @@ function optionRow(index: number, label: string, current: Choice | undefined, di
   return `<fieldset><legend>${escapeHtml(label)}</legend>${radios}</fieldset>`;
 }
 
+// Rendered both on first page load (so the page is correct with no JS and
+// before the SSE connection opens) and inside the client script below,
+// which replaces #status's innerHTML with this same shape on every live
+// update. Keeping one function for both means the two can't drift apart.
+function statusHtml(status: RoomStatus, options: string[]): string {
+  if (!status.reveal) {
+    return `<p id="status-text">${status.submitted} of ${status.expected} submitted</p>`;
+  }
+  const { accepted, discuss } = status.reveal;
+  const list = (indices: number[]): string =>
+    indices.length > 0
+      ? `<ul>${indices.map((i) => `<li>${escapeHtml(options[i])}</li>`).join("")}</ul>`
+      : "<p><em>none</em></p>";
+  return `
+    <p id="status-text"><strong>Everyone has submitted.</strong> The group makes the final call — this just shows what's already agreed.</p>
+    <h2>Everyone can accept</h2>
+    ${list(accepted)}
+    <h2>Needs discussion</h2>
+    ${list(discuss)}
+  `;
+}
+
 function roomPage(opts: {
   roomId: string;
   question: string;
@@ -104,17 +129,17 @@ function roomPage(opts: {
   isOrganiser: boolean;
   submitted: boolean;
   ownMarks: Record<number, Choice>;
+  status: RoomStatus;
   error?: string;
   shareUrl: string;
 }): string {
-  const { roomId, question, options, expectedParticipants, submitted, ownMarks, error, shareUrl } = opts;
+  const { roomId, question, options, expectedParticipants, submitted, ownMarks, status, error, shareUrl } = opts;
 
   const rows = options.map((label, i) => optionRow(i, label, ownMarks[i], submitted)).join("\n");
 
   const form = submitted
     ? `<p><strong>Your response is recorded.</strong> You marked:</p>
-       <ul>${options.map((label, i) => `<li>${escapeHtml(label)}: ${escapeHtml(ownMarks[i] ?? "")}</li>`).join("")}</ul>
-       <p>Live progress and the group reveal arrive in the next milestone.</p>`
+       <ul>${options.map((label, i) => `<li>${escapeHtml(label)}: ${escapeHtml(ownMarks[i] ?? "")}</li>`).join("")}</ul>`
     : `<form method="post" action="/rooms/${roomId}/responses">
          ${rows}
          <p><em>No favourite is valid — you can mark every option "Acceptable" or "Ask me first".</em></p>
@@ -130,6 +155,8 @@ function roomPage(opts: {
       <p>Share this link with the group: <code>${escapeHtml(shareUrl)}</code></p>
       ${error ? `<p role="alert" style="color: #b00;">${escapeHtml(error)}</p>` : ""}
       ${form}
+      <div id="status">${statusHtml(status, options)}</div>
+      <script src="/live.js" data-room="${roomId}"></script>
     `,
   );
 }
@@ -173,6 +200,43 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       "body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;line-height:1.5}" +
         "fieldset{margin-bottom:1rem}label{display:block;margin:.25rem 0}",
     );
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/live.js") {
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
+    // Replaces #status wholesale with each event's HTML — the server
+    // already reduced the data to what's safe to show, so the client has
+    // no choice logic of its own to keep in sync.
+    res.end(
+      `(function(){var s=document.currentScript;var es=new EventSource("/rooms/"+s.dataset.room+"/live");` +
+        `es.onmessage=function(e){document.getElementById("status").innerHTML=e.data;};})();`,
+    );
+    return;
+  }
+
+  const liveMatch = url.pathname.match(/^\/rooms\/([^/]+)\/live$/);
+  if (req.method === "GET" && liveMatch) {
+    const roomId = liveMatch[1];
+    const room = getRoom(roomId);
+    if (!room) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.flushHeaders();
+    // Sent to this connection only (not broadcast — that would re-push to
+    // every other open tab in the room). Covers the gap between the page's
+    // initial HTML being generated and this connection opening: without
+    // it, a submission landing in that window would be missed until the
+    // next one.
+    writeEvent(res, statusHtml(getRoomStatus(roomId), room.options));
+    subscribe(roomId, res);
     return;
   }
 
@@ -231,6 +295,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         isOrganiser: isOrganiser(roomId, participantId),
         submitted: hasSubmitted(roomId, participantId),
         ownMarks: getOwnResponses(roomId, participantId),
+        status: getRoomStatus(roomId),
         shareUrl: `${origin}/rooms/${roomId}`,
       }),
       headers,
@@ -265,6 +330,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
     try {
       submitResponse(roomId, participantId, marks);
+      const status = getRoomStatus(roomId);
+      broadcast(roomId, statusHtml(status, room.options));
       send(res, 303, "", { Location: `/rooms/${roomId}` });
     } catch (err) {
       if (err instanceof ValidationError) {
@@ -279,6 +346,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             isOrganiser: isOrganiser(roomId, participantId),
             submitted: hasSubmitted(roomId, participantId),
             ownMarks: marks,
+            status: getRoomStatus(roomId),
             error: err.message,
             shareUrl: `${origin}/rooms/${roomId}`,
           }),

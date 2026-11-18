@@ -11,6 +11,20 @@ anywhere — not in validation, not in any future reveal/tally logic.
 The group makes the final decision. The app surfaces agreement and
 disagreement; it must never auto-pick a winning option on anyone's behalf.
 
+## Live updates (Crit 9)
+
+Before everyone in a room has submitted, anything pushed to an open tab is
+a submission count, nothing else — never another participant's options,
+marks, or a partial tally. Only the fully-reduced reveal (accepted/discuss
+lists, computed in `getRoomStatus`) may ever cross an open connection once
+the room is complete. If you add new live data, run it through the same
+reduction rule: a client never receives more than what `getRoomStatus`
+already decided is safe to show.
+
+The reveal is never stored — `getRoomStatus` recomputes it from `responses`
+every time, so reopening a completed room and a live push always agree.
+Don't cache it.
+
 ## Stack
 
 No build step, no framework, no runtime npm dependencies. Node's built-ins
@@ -23,6 +37,13 @@ risk the course setup doesn't need.
 
 Persistence is a single SQLite file at `/data/app.db` (the Fly volume). Any
 new table needs a reason tied to an actual feature, not speculative shape.
+
+Live updates use Server-Sent Events (`/rooms/:id/live`), held in an
+in-memory per-process subscriber list (`src/live.ts`). That list is not a
+source of truth and doesn't need to survive a restart: every client
+reconnects and the room page's own render (backed by SQLite) is always
+correct on load. Don't add a second live-update mechanism (WebSockets,
+polling) alongside it without a reason SSE can't cover.
 
 ## Multi-user identity
 

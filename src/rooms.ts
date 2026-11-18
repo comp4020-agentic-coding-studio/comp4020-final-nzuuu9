@@ -96,6 +96,49 @@ export function getOwnResponses(roomId: string, participantId: string): Record<n
   return out;
 }
 
+export interface Reveal {
+  // option indices, derived fresh from responses each time — nothing about
+  // the reveal is stored, so "reopening a completed room" just recomputes
+  // the same answer from the same rows.
+  accepted: number[];
+  discuss: number[];
+}
+
+export interface RoomStatus {
+  submitted: number;
+  expected: number;
+  reveal: Reveal | null;
+}
+
+// The group's rule, enforced here rather than left to a client to honour:
+// an option is "everyone can accept" only if every submitted mark on it is
+// first-choice or acceptable; a single ask-first anywhere pulls it into
+// "needs discussion". Nothing here picks a winner — that stays the group's
+// call (see README.md).
+export function getRoomStatus(roomId: string): RoomStatus {
+  const room = getRoom(roomId);
+  if (!room) throw new ValidationError("room not found");
+
+  const { count } = db
+    .prepare("SELECT COUNT(*) as count FROM submissions WHERE room_id = ?")
+    .get(roomId) as { count: number };
+
+  if (count < room.expectedParticipants) {
+    return { submitted: count, expected: room.expectedParticipants, reveal: null };
+  }
+
+  const accepted: number[] = [];
+  const discuss: number[] = [];
+  const askFirst = db.prepare(
+    "SELECT 1 FROM responses WHERE room_id = ? AND option_index = ? AND choice = 'ask-first' LIMIT 1",
+  );
+  for (let i = 0; i < room.options.length; i++) {
+    (askFirst.get(roomId, i) ? discuss : accepted).push(i);
+  }
+
+  return { submitted: count, expected: room.expectedParticipants, reveal: { accepted, discuss } };
+}
+
 export class ValidationError extends Error {}
 
 // Submission is all-or-nothing: every option needs an explicit mark, and a
