@@ -28,3 +28,9 @@ link exists in this repo. Whether the account is any good is the marker's call.
   selections; once both submitted, both windows showed the same reveal at
   once — Dinner nearby under "Everyone can accept", Coastal drive under
   "Needs discussion".
+- Crit 10: ran the permissions/logging milestone by hand against the
+  deployed Fly app (not just localhost). Both browsers saw the same live
+  reveal. In the Fly logs, the two participants could be told apart and
+  followed from join through submission to the reveal. A third browser
+  was refused once the room was full. Reopening the room in the original
+  participant's browser still showed the saved result.
