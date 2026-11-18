@@ -34,3 +34,6 @@ link exists in this repo. Whether the account is any good is the marker's call.
   followed from join through submission to the reveal. A third browser
   was refused once the room was full. Reopening the room in the original
   participant's browser still showed the saved result.
+- After the Fly redeploy, reopened the saved room link in the original
+  browser and confirmed the same two options appeared under the same
+  result headings, with no option to submit again.
