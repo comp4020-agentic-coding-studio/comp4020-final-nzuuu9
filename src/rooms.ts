@@ -62,11 +62,36 @@ export function getRoom(roomId: string): Room | undefined {
   };
 }
 
+export class RoomFullError extends Error {}
+
 // A participant is created the first time their browser is seen in this
 // room (see server.ts, which holds the per-room participant cookie), not
 // here — joining and submitting are separate concerns.
+//
+// Permission rule: a room seats exactly as many distinct people as its
+// organiser named when creating it (expectedParticipants). Enforced here,
+// server-side, rather than left to the client, because the room link is
+// shareable and nothing stops it reaching more people than intended — the
+// whole point of naming a group size up front is that a latecomer who
+// wasn't one of the people the question was for can't quietly join and
+// change what "everyone" means.
 export function ensureParticipant(roomId: string, participantId: string): void {
+  const room = getRoom(roomId);
+  if (!room) throw new ValidationError("room not found");
+
   const now = new Date().toISOString();
+  const existing = db
+    .prepare("SELECT 1 FROM participants WHERE room_id = ? AND participant_id = ?")
+    .get(roomId, participantId);
+  if (existing) return;
+
+  const { count } = db
+    .prepare("SELECT COUNT(*) as count FROM participants WHERE room_id = ?")
+    .get(roomId) as { count: number };
+  if (count >= room.expectedParticipants) {
+    throw new RoomFullError(`this room already has its expected ${room.expectedParticipants} participants`);
+  }
+
   db.prepare(
     "INSERT INTO participants (room_id, participant_id, is_organiser, joined_at) VALUES (?, ?, 0, ?) " +
       "ON CONFLICT (room_id, participant_id) DO NOTHING",

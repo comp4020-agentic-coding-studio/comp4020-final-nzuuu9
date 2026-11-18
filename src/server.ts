@@ -9,6 +9,7 @@ import {
   getRoomStatus,
   hasSubmitted,
   isOrganiser,
+  RoomFullError,
   submitResponse,
   ValidationError,
   type Choice,
@@ -16,6 +17,7 @@ import {
 } from "./rooms.ts";
 import { broadcast, subscribe, writeEvent } from "./live.ts";
 import { escapeHtml, page } from "./html.ts";
+import { logJoined, logRejected, logRevealed, logSubmitted } from "./log.ts";
 
 const README = readFileSync("README.md", "utf8");
 
@@ -248,6 +250,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         options: body.option ?? [],
         expectedParticipants: Number(body.expectedParticipants?.[0]),
       });
+      logJoined(room.id, organiserId, true);
       const cookie = `${participantCookieName(room.id)}=${organiserId}; Path=/rooms/${room.id}; HttpOnly; SameSite=Lax`;
       send(res, 303, "", { Location: `/rooms/${room.id}`, "Set-Cookie": cookie });
     } catch (err) {
@@ -273,15 +276,27 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     const cookieName = participantCookieName(roomId);
     let participantId = cookies[cookieName];
     const headers: Record<string, string> = {};
+    const isNewParticipant = !participantId;
 
-    if (!participantId) {
-      participantId = randomUUID();
+    if (!participantId) participantId = randomUUID();
+
+    try {
+      // idempotent for a returning participant (organiser or not): already
+      // a row, so this is a no-op (rooms.ts: ON CONFLICT DO NOTHING). For a
+      // new one, this is where room capacity is enforced server-side.
       ensureParticipant(roomId, participantId);
+    } catch (err) {
+      if (err instanceof RoomFullError) {
+        logRejected(roomId, participantId, "room full");
+        send(res, 403, page("Room full", `<p role="alert">${escapeHtml(err.message)}</p>`));
+        return;
+      }
+      throw err;
+    }
+
+    if (isNewParticipant) {
       headers["Set-Cookie"] = `${cookieName}=${participantId}; Path=/rooms/${roomId}; HttpOnly; SameSite=Lax`;
-    } else {
-      // idempotent: a returning participant (organiser or not) is already a
-      // row, and re-inserting is a no-op (rooms.ts: ON CONFLICT DO NOTHING)
-      ensureParticipant(roomId, participantId);
+      logJoined(roomId, participantId, isOrganiser(roomId, participantId));
     }
 
     send(
@@ -330,11 +345,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
     try {
       submitResponse(roomId, participantId, marks);
+      logSubmitted(roomId, participantId);
       const status = getRoomStatus(roomId);
+      if (status.reveal) logRevealed(roomId, status.submitted, status.expected);
       broadcast(roomId, statusHtml(status, room.options));
       send(res, 303, "", { Location: `/rooms/${roomId}` });
     } catch (err) {
       if (err instanceof ValidationError) {
+        logRejected(roomId, participantId, err.message);
         send(
           res,
           400,

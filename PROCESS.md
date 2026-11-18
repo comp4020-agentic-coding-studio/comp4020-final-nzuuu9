@@ -18,3 +18,13 @@ for a range.
 
 `pnpm check:evidence` checks that this comment is gone and that every commit you
 link exists in this repo. Whether the account is any good is the marker's call.
+
+## Local testing log
+
+- Crit 9: ran the live-progress/reveal milestone by hand on localhost using
+  a regular Chrome window and an incognito window as the two participants.
+  Live progress appeared in the second window without a refresh after the
+  first window submitted; the second window's own unfinished form kept its
+  selections; once both submitted, both windows showed the same reveal at
+  once — Dinner nearby under "Everyone can accept", Coastal drive under
+  "Needs discussion".

@@ -52,6 +52,30 @@ widen the cookie's path or add a global identity — the isolation guarantee
 (a second browser never sees another participant's marks) depends on the
 cookie being per-room.
 
+## Permissions (Crit 10)
+
+Organiser status is informational only — see README.md's "Who a participant
+is" section for why. Never add an organiser-only action that touches
+another participant's data (editing/deleting their response, for example);
+that would break the reveal's guarantee that nobody, including the
+organiser, can influence another participant's recorded answer.
+
+Room capacity (`expectedParticipants`) is enforced in `ensureParticipant`
+(`src/rooms.ts`), not the client — that's the one place a new participant
+row is created, so it's the only place that can refuse one. Any new way of
+joining a room needs to route through it, not bypass it.
+
+## Logging (Crit 10)
+
+Every join, submission, and reveal is logged through `src/log.ts`, never
+with `console.log` directly in `server.ts` or `rooms.ts` — that's what
+keeps every log line using the same hashed participant label instead of
+the raw participant id (which is also the session cookie's value: logging
+it would hand out a bearer credential). Never log a participant's actual
+marks, choices, or the room's question/options alongside an event; the log
+is for telling two participants apart over time, not for recording what
+they decided.
+
 ## Testing
 
 `spec/invariants.test.ts` is the course's fixed contract — never delete or
