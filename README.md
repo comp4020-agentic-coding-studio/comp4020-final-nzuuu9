@@ -1,108 +1,23 @@
 # bigger than 2
 
-## The problem
+## What is this for?
 
-In a group of three, one person often ends up making the call — not because
-the others don't care, but because "anything is fine" never distinguishes a
-genuine preference from a boundary someone would actually want respected.
-Saying nothing, or going along with whatever's suggested first, reads the
-same as agreeing to it.
+That was my housemate's first question when I showed him this, so it's the first thing to answer here too. In a group of three, one person often ends up making the call — not because the others don't care, but because "anything is fine" never distinguishes a genuine preference from a boundary someone would actually want respected. The point isn't to replace every conversation; it's that agreement on an everyday plan can save us one.
 
-## The rule this app enforces
+## The decision flow
 
-An organiser poses a question with 2-3 options and names how many people
-will answer. Each participant privately marks every option as their first
-choice, acceptable, or ask me first — no option can be left unmarked, and
-having no favourite is a valid answer. Silence and "ask me first" never
-count as agreement; only an explicit "first choice" or "acceptable" mark
-does. The group still makes the final call — the app reveals what's already
-agreed and what still needs a conversation, but it never decides anything
-itself.
+People can think over the options on their own beforehand. The organiser gathers two or three, writes the question, and starts a room. Everyone marks each option privately — no one sees anyone else's marks while this is happening. Once every response is in, two lists appear: options everyone marked first-choice-or-acceptable ("everyone can accept"), and options with at least one "ask me first" ("needs discussion"). If any options are under "everyone can accept", the group can go straight ahead, choosing among them if there's more than one. If none qualify, or someone wants to pursue something under "needs discussion", that's when a conversation helps. The app never picks a winner — it only shows where you already agree.
 
-## What's built so far
+## How to use it
 
-**Crit 8** — create a round and get a shareable room link; submit a private
-response once per person, per room (retries don't double-count and don't let
-you change your mind after submitting); a room and your own response persist
-across closing the tab, reopening the browser, and a server restart; a
-second browser opening the same link gets its own identity and never sees
-anyone else's marks.
+Start a round from the home page: a question, 2–3 options, and how many people will answer (including you). You get a link to share with the group.
 
-**Crit 9** — everyone watching a room sees how many people have submitted,
-live, with no reload — updated over a single Server-Sent Events connection
-per open tab. Nothing an open tab receives before everyone's submitted is
-more than a count: no option, no choice, no partial tally. Once everyone has
-submitted, every open tab gets the same reveal at once: which options
-everyone marked first-choice-or-acceptable ("everyone can accept"), and which
-have at least one "ask me first" ("needs discussion"). The reveal is derived
-fresh from the stored responses, not cached anywhere — reopening a completed
-room later recomputes and shows the same result. The app still never picks
-a winner.
+Opening that link seats you in the room. Mark every option. You can mark at most one as **first choice**, and having no favourite is fine — "acceptable" or "ask me first" on everything is a valid answer. A submission is final. While people are still choosing, the room only shows how many have submitted, never anyone's marks. Returning to a saved room later needs the same browser profile that holds its room cookie — a different browser is treated as a new participant.
 
-**Crit 10** — who a participant is, what they can see or change, and why, is
-written down below and enforced on the server rather than left to the
-client. The server also logs who joined, who submitted, and when a room's
-reveal happened, using a label that identifies a participant without being
-their session credential or disclosing anything they marked.
+## Why not just ask in the group chat?
 
-## Who a participant is, and what they can do (Crit 10)
+Alice marks the coastal drive first choice and dinner acceptable; Bob marks the drive "ask me first" and dinner acceptable. In a group chat, Alice's "let's do the drive!" lands first, and Bob is left choosing between going along or pushing back. Here, both answers exist before either is seen: dinner lands under "everyone can accept", and the drive lands under "needs discussion" because Bob's "ask me first" counts, even though Alice wants it most.
 
-A participant is identified by a random id in a cookie scoped to that one
-room (`/rooms/<roomId>`) — not an account, not a name typed in, because the
-app doesn't need to know who someone is, only that it's the same browser
-coming back. The first browser to open a room's link becomes its organiser;
-every later distinct browser becomes a participant. Both are recorded, but
-**organiser is informational only** — it grants no extra power over the
-room or anyone else's data. There's deliberately nothing in this app an
-organiser can do that a participant can't: no editing, deleting, or closing
-someone else's response, because the group's decision rule (an "ask me
-first" from anyone keeps an option out of "everyone can accept") only works
-if nobody — organiser included — can touch what someone else submitted.
+**What's untested:** whether this changes a real decision. My housemate tried it once, with me guiding him through it — he asked what it was for, understood once I explained, and marked both of our options. At my request he then tried marking two as "first choice" to see the app stop him, and afterwards said he could see us using it again. We haven't yet used it for a decision neither of us had already talked through first.
 
-What the server actually enforces, independent of what any page renders:
-
-- **Room size is a hard cap, not a suggestion.** A room admits exactly the
-  number of distinct participants its organiser named when creating it; a
-  browser arriving after that cap is reached is refused (HTTP 403), not
-  quietly let in as an extra voice in a "2-person" decision. Enforced in
-  `ensureParticipant` (`src/rooms.ts`), at the point a new participant would
-  otherwise be created — not in the UI, since the room link itself is the
-  only thing standing between "the people this question was for" and
-  anyone else it reaches.
-- **Before everyone's submitted, a participant sees only their own marks**
-  — never another participant's options or partial tally, only a plain
-  count of how many people have submitted so far (this was already true
-  from Crit 9; it's restated here as a permission rule because it's exactly
-  the kind of thing that's easy to accidentally break while adding a
-  feature, and is now covered by a regression test).
-- **A submission is one person's, once.** Nobody — not the organiser, not
-  the participant themselves on a retry — can submit again for the same
-  participant in the same room, or alter a response after it's recorded.
-- **After reveal, everyone sees the same two lists** (accepted / needs
-  discussion), derived the same way for every participant; nobody gets a
-  different, more detailed, or earlier view of the result.
-
-## What the server logs
-
-Every join, submission, and reveal is logged server-side (stdout, which
-Fly's own log storage keeps independently of the running machine, so the
-log outlives a redeploy or the crit it was recorded for). Each line carries
-a short label derived from the participant's id (a truncated hash, not the
-id itself and never the session cookie), so two participants in the same
-room can be told apart across log lines without the log being able to
-impersonate either of them if it leaked. Nobody's actual marks are ever
-logged — only that an event of a given kind happened, for which room, for
-which labelled participant, and when.
-
-## What's deliberately not built yet
-
-- No accounts — a participant is whoever's browser first opened the room
-  link, identified by a cookie scoped to that room.
-- No editing a submitted response. The design rule is that an answer is
-  either an explicit mark or it doesn't count; letting someone revise after
-  seeing others' answers would undermine the private-submission step this
-  app exists to protect.
-- No handling yet for a browser that loses its cookie (private mode,
-  cleared storage) — that person currently looks like a brand-new
-  participant, and if the room is already full, they're refused entry
-  entirely rather than recognised as someone who was already in it.
+Two sources helped me explain these choices afterwards, found while writing this account — a retrospective comparison, not something read before building. The no-login decision — a room link is the only way in, nothing to sign up for — came from designing this for my housemates specifically, a known, fixed group rather than a general audience; Robin Sloan's ["An app can be a home-cooked meal"](https://www.robinsloan.com/notes/home-cooked-app/) gave me the clearest account of why that's enough. The CDC's brief on the [nominal group technique](https://www.cdc.gov/healthy-youth/php/program-evaluation/pdf/brief7.pdf) describes silent idea generation, recording, discussion, then private voting. This app puts discussion *after* private marking instead — the reverse of where NGT places it — to skip unnecessary negotiation, not to structure it.

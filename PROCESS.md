@@ -1,39 +1,35 @@
-# Process overview
+# How I built bigger than 2
 
-<!-- TEMPLATE: replace everything in this file with your own account, this
-     comment included --- `pnpm check:evidence` fails while it's still here. -->
+## Choosing the decision worth supporting
 
-How you got from the brief to the harness, agentic workflow and stack behind
-this app, told however suits the work. The
-[final project brief](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/assessments/final-project/#what-you-submit)
-says what it covers and how long it runs.
+I live in a three-person townhouse. When I started this project, I could think of plenty of things we might put on a shared website: buying household supplies, choosing dinner, dividing up the cooking, even shortlisting houses. Finding our place had taken real effort — separate searches, compared shortlists, inspections, applications, and I handled most of the communication. The three of us cared to different degrees; a faster chat would still have left me doing that work.
 
-Markers follow the links you give them; they don't trawl the repo for evidence
-you didn't point at. A link to the record is one whose text is the commit hash,
-and it can sit anywhere in a sentence:
-[`a1b2c3d`](https://github.com/YOUR-ORG/YOUR-REPO/commit/a1b2c3d) for one
-commit, or
-[`a1b2c3d...e4f5a6b`](https://github.com/YOUR-ORG/YOUR-REPO/compare/a1b2c3d...e4f5a6b)
-for a range.
+I asked Claude to challenge the ideas on cost, what needed to happen live, and what I could test. Its strongest case for a dinner app was two people buying the same ingredient; asked for an evening that had happened, I couldn't recall one. What I did recognise, from hearing friends say "anything is fine", was the person who goes along with the first suggestion unless they really dislike it, and I wanted someone able to say "ask me first" before hearing which option the loudest person preferred.
 
-`pnpm check:evidence` checks that this comment is gone and that every commit you
-link exists in this repo. Whether the account is any good is the marker's call.
+An unlikely reference was the substitution choice in a grocery order: happy with one replacement, wanting a call about another. That gave me something more precise than a preference ranking, and showed where the analogy ends — one shopper can authorise a substitution alone, but a group still has to decide together. I kept "ask me first" and dropped follow-up tasks like assigning the cooking. The first implementation records an explicit mark for every option, allows no favourite, and identifies people by a cookie rather than an account. Robin Sloan's case for designing for a small, known group — read only while writing the README, well after this shipped — is the clearest reason I've since found for that last choice: a room already knows who it's for. [658808a](https://github.com/comp4020-agentic-coding-studio/comp4020-final-nzuuu9/commit/658808ad81ff2cd0bfbd4bae818145fc4362215e)
 
-## Local testing log
+## A stack and a workflow I could check
 
-- Crit 9: ran the live-progress/reveal milestone by hand on localhost using
-  a regular Chrome window and an incognito window as the two participants.
-  Live progress appeared in the second window without a refresh after the
-  first window submitted; the second window's own unfinished form kept its
-  selections; once both submitted, both windows showed the same reveal at
-  once — Dinner nearby under "Everyone can accept", Coastal drive under
-  "Needs discussion".
-- Crit 10: ran the permissions/logging milestone by hand against the
-  deployed Fly app (not just localhost). Both browsers saw the same live
-  reveal. In the Fly logs, the two participants could be told apart and
-  followed from join through submission to the reveal. A third browser
-  was refused once the room was full. Reopening the room in the original
-  participant's browser still showed the saved result.
-- After the Fly redeploy, reopened the saved room link in the original
-  browser and confirmed the same two options appeared under the same
-  result headings, with no option to submit again.
+I deployed the supplied placeholder first, so I had a working deployment to compare with each change. Claude weighed Express with a separate SQLite driver against the pinned Node version, which could already serve HTTP, run TypeScript and open SQLite on its own — Express meant a dependency to maintain, the SQLite driver native bindings that could break against the Alpine image on redeploy. The built-ins removed both risks, at a real cost: the project owns its own routing, cookie handling and form validation. The Dockerfile dropped the supplied busybox placeholder for a plain Node image with no install step, and `CLAUDE.md` records the no-framework rule.
+
+I missed the scheduled crits, so I built and tested all three milestones retrospectively, on my own schedule, stopping after each so I could run the browser flow myself rather than trust a description of it. In the first version I could create a room, follow its share link and see my own saved response; leaving an option blank produced a prompt, as did marking two first choices, and a second browser gave me another participant who never saw my marks. Each of us could answer privately, but we still had no shared result — a clear stopping point. [658808a](https://github.com/comp4020-agentic-coding-studio/comp4020-final-nzuuu9/commit/658808ad81ff2cd0bfbd4bae818145fc4362215e)
+
+## What the second browser should learn
+
+The live update raised a design question: what should someone learn while still choosing, given even a partial total could steer them towards someone else's answer? The second milestone put a rule in `CLAUDE.md` and a matching check in the spec: while the room is waiting, the event stream carries only a submission count, never anyone's marks. Once everyone has answered, the server groups the options by the saved marks, and an "ask me first" from one participant keeps that option under "Needs discussion" even when it's somebody else's first choice. [06f7d8a](https://github.com/comp4020-agentic-coding-studio/comp4020-final-nzuuu9/commit/06f7d8a619419aa0f88e73fe505cbf20e5884f8a)
+
+Found only while writing the README, well after this shipped: the CDC's brief on the nominal group technique, whose four steps — silent idea generation, recording, discussion, then private voting — put discussion *before* voting. Ours puts it after private marking instead, for the opposite reason: not to structure a conversation, but to skip one where it isn't needed.
+
+Ordinary submissions already carried answers to the server; server-sent events covered the reverse direction. I asked Claude to stop again once this was wired up, since what happens across two open tabs isn't something I can verify by reading a diff. I tried it in regular and incognito Chrome: after I submitted in the first, the count changed in the second without refreshing or clearing its choices, and when both finished, both windows showed "Dinner nearby" accepted and "Coastal drive" needing discussion. Keeping the unfinished form intact mattered — a live feature that made the second person restart would undercut an independent answer. [fe6918c](https://github.com/comp4020-agentic-coding-studio/comp4020-final-nzuuu9/commit/fe6918c7a543ef7b43ff9252c6de683826450e28)
+
+## What survived the deployment
+
+An early two-person room could admit a third browser. The permissions milestone fixed that in the admission code and in `CLAUDE.md`; `spec/permissions.test.ts` checks both sides — a newcomer to a full room is refused, and someone already seated can still return on their cookie, though losing it costs them their way back in. [fe6918c](https://github.com/comp4020-agentic-coding-studio/comp4020-final-nzuuu9/commit/fe6918c7a543ef7b43ff9252c6de683826450e28)
+
+I asked Claude to stop a third time before deploying, so I could check permissions and logging directly on Fly myself, before anyone else touched it. A third browser was refused, a returning participant could still reopen the room, and in the logs I could follow two distinct participants from joining to the reveal through their labels, without seeing which option either wanted. [21c13ca](https://github.com/comp4020-agentic-coding-studio/comp4020-final-nzuuu9/commit/21c13cadca4a5256c1d5be6ea13a79bd66d87e5b)
+
+At first I asked what reopening the link after deployment could possibly prove; the detail that made it meaningful was using the original browser and a room whose outcome I already knew. Claude confirmed the database was on the mounted volume and its counts survived a redeploy; I then reopened my saved link and saw the same two options under the same headings, with no invitation to vote again — one check for the rows surviving, the other for a returning person still being able to use them. [f084144](https://github.com/comp4020-agentic-coding-studio/comp4020-final-nzuuu9/commit/f084144d0209891accdf407d16f665d5f8ff61bb)
+
+## Trying it with my housemate
+
+With the app deployed, my housemate tried it with my guidance. His first question was what it was for; I explained it was for people who sometimes find it hard to say what they want. He understood quickly, marked both options, and at my request tried two "First choice" marks to see the limit enforced. Afterwards he said he could see us using it again — my own read, not something tested, since I'd supplied the explanation myself. Next time I'd put one sentence about the purpose above the choices and send the link without me beside them. Whether it changes a decision neither of us had already talked through first is still open.
