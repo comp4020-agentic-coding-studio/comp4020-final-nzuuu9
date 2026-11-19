@@ -191,7 +191,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     send(
       res,
       200,
-      page("About", `<pre>${escapeHtml(README)}</pre>`),
+      page(
+        "About",
+        `<p><a href="/">Start a round</a></p><pre class="readme">${escapeHtml(README)}</pre>`,
+      ),
     );
     return;
   }
@@ -200,7 +203,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     res.writeHead(200, { "Content-Type": "text/css; charset=utf-8" });
     res.end(
       "body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;line-height:1.5}" +
-        "fieldset{margin-bottom:1rem}label{display:block;margin:.25rem 0}",
+        "fieldset{margin-bottom:1rem}label{display:block;margin:.25rem 0}" +
+        // The README is markdown prose escaped verbatim into a <pre>, so its
+        // lines are long and unwrapped by default; pre-wrap plus
+        // overflow-wrap lets them break instead of forcing horizontal
+        // scroll, and font:inherit drops <pre>'s default monospace so it
+        // reads as prose, not code.
+        ".readme{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}",
     );
     return;
   }
