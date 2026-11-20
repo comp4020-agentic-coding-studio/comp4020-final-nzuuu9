@@ -17,6 +17,8 @@ import {
 } from "./rooms.ts";
 import { broadcast, subscribe, writeEvent } from "./live.ts";
 import { escapeHtml, page } from "./html.ts";
+import { renderMarkdown } from "./markdown.ts";
+import { HOME_SCRIPT, STYLESHEET } from "./assets.ts";
 import { logJoined, logRejected, logRevealed, logSubmitted } from "./log.ts";
 
 const README = readFileSync("README.md", "utf8");
@@ -58,27 +60,76 @@ function parseForm(body: string): Record<string, string[]> {
 
 // --- views -----------------------------------------------------------------
 
+// A three-step form that's really one single POST /rooms, same fields as
+// Crit 8 always sent (question, 2-3 "option" fields, expectedParticipants)
+// — home.js only ever toggles the `hidden` attribute, never removes or
+// recreates an input, so nothing a participant typed is lost going Back,
+// and a hidden step's fields still post with the final submission (the
+// `hidden` attribute excludes an element from constraint validation and
+// the tab order, but not from form submission — only `disabled` or a
+// missing `name` does that).
+//
+// Honest trade-off: steps 2 and 3 start with the `hidden` attribute set
+// server-side, so reaching them depends on home.js running. Every earlier
+// milestone's home page worked with no JS at all; this redesign's staged
+// reveal does not degrade to that. Script failure here means "stuck on
+// step 1", not "broken room creation" (nothing can be submitted without a
+// question and options regardless), but it's a real, deliberate narrowing
+// of what Crit 8 promised, kept to get the asked-for animation and steps.
 function homePage(): string {
   return page(
     "bigger than 2",
     `
-      <h1>bigger than 2</h1>
-      <p>Create a round: a question, 2–3 options, and how many people will answer.</p>
-      <form method="post" action="/rooms">
-        <label>Question<br /><input name="question" required maxlength="200" /></label><br /><br />
-        <label>Option 1<br /><input name="option" required maxlength="100" /></label><br />
-        <label>Option 2<br /><input name="option" required maxlength="100" /></label><br />
-        <label>Option 3 (optional)<br /><input name="option" maxlength="100" /></label><br /><br />
-        <label>Expected participants (including you)<br />
-          <select name="expectedParticipants">
-            <option value="2">2</option>
-            <option value="3">3</option>
-          </select>
-        </label><br /><br />
-        <button type="submit">Create room</button>
+      <form method="post" action="/rooms" id="wizard">
+        <section class="step" id="step-count">
+          <h1 class="wordmark" id="wordmark">BIGGER THAN</h1>
+          <div id="step1Body">
+            <p class="tagline" id="tagline">Pick your preferences privately. See which plans work for everyone.</p>
+            <div class="field">
+              <label for="expectedParticipants">How many of you are deciding?</label>
+              <input type="number" inputmode="numeric" id="expectedParticipants" name="expectedParticipants" min="2" max="3" step="1" value="2" required />
+              <p class="hint">2 or 3, including you.</p>
+            </div>
+            <button type="button" class="btn-primary" id="toStep2">Next</button>
+          </div>
+        </section>
+
+        <section class="card" id="step-question" hidden>
+          <h2>What are we deciding?</h2>
+          <label class="sr-only" for="question">Question</label>
+          <input type="text" id="question" name="question" maxlength="200" required placeholder="What should we do on Friday night?" />
+          <div class="card-actions">
+            <button type="button" class="btn-secondary" id="toStep1">Back</button>
+            <button type="button" class="btn-primary" id="toStep3">Next</button>
+          </div>
+        </section>
+
+        <section class="card" id="step-options" hidden>
+          <h2>What are the options?</h2>
+          <p class="question-recap" id="questionRecap"></p>
+          <div class="field">
+            <label for="option1">Option 1</label>
+            <input type="text" id="option1" name="option" maxlength="100" required />
+          </div>
+          <div class="field">
+            <label for="option2">Option 2</label>
+            <input type="text" id="option2" name="option" maxlength="100" required />
+          </div>
+          <div class="field" id="option3Field" hidden>
+            <label for="option3">Option 3</label>
+            <input type="text" id="option3" name="option" maxlength="100" />
+          </div>
+          <button type="button" class="btn-link" id="addThird">Add a third option</button>
+          <div class="card-actions">
+            <button type="button" class="btn-secondary" id="toStep2b">Back</button>
+            <button type="submit" class="btn-primary">Create room</button>
+          </div>
+        </section>
       </form>
-      <p><a href="/readme/">About this app</a></p>
+      <p class="footer-link"><a href="/readme/">About this app</a></p>
+      <script src="/home.js"></script>
     `,
+    "home",
   );
 }
 
@@ -139,13 +190,24 @@ function roomPage(opts: {
 
   const rows = options.map((label, i) => optionRow(i, label, ownMarks[i], submitted)).join("\n");
 
+  // Explains the privacy/reveal rule and the at-most-one-first-choice
+  // limit, then "Ask me first" in plain English, in that order, once,
+  // above the choices — for a participant opening a room link straight
+  // into this page with no earlier context from the wizard.
+  const intro = `
+    <div class="room-intro">
+      <p>Mark each option privately. Once everyone answers, you'll see which plans everyone can accept. You can mark at most one option "First choice" — the rest can be "Acceptable" or "Ask me first", and having no favourite is fine.</p>
+      <p>"Ask me first" means: <em>I'd like to talk about this one before we decide.</em></p>
+    </div>
+  `;
+
   const form = submitted
     ? `<p><strong>Your response is recorded.</strong> You marked:</p>
        <ul>${options.map((label, i) => `<li>${escapeHtml(label)}: ${escapeHtml(ownMarks[i] ?? "")}</li>`).join("")}</ul>`
-    : `<form method="post" action="/rooms/${roomId}/responses">
+    : `${intro}
+       <form method="post" action="/rooms/${roomId}/responses">
          ${rows}
-         <p><em>No favourite is valid — you can mark every option "Acceptable" or "Ask me first".</em></p>
-         <button type="submit">Submit my response</button>
+         <button type="submit" class="btn-primary">Submit my response</button>
        </form>`;
 
   return page(
@@ -193,7 +255,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       200,
       page(
         "About",
-        `<p><a href="/">Start a round</a></p><pre class="readme">${escapeHtml(README)}</pre>`,
+        `<p class="start-link"><a href="/">Start a round</a></p><article class="readme">${renderMarkdown(README)}</article>`,
+        "readme",
       ),
     );
     return;
@@ -201,16 +264,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   if (req.method === "GET" && url.pathname === "/style.css") {
     res.writeHead(200, { "Content-Type": "text/css; charset=utf-8" });
-    res.end(
-      "body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;line-height:1.5}" +
-        "fieldset{margin-bottom:1rem}label{display:block;margin:.25rem 0}" +
-        // The README is markdown prose escaped verbatim into a <pre>, so its
-        // lines are long and unwrapped by default; pre-wrap plus
-        // overflow-wrap lets them break instead of forcing horizontal
-        // scroll, and font:inherit drops <pre>'s default monospace so it
-        // reads as prose, not code.
-        ".readme{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}",
-    );
+    res.end(STYLESHEET);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/home.js") {
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
+    res.end(HOME_SCRIPT);
     return;
   }
 

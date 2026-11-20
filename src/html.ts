@@ -7,7 +7,7 @@ export function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-export function page(title: string, body: string): string {
+export function page(title: string, body: string, bodyClass?: string): string {
   return `<!doctype html>
 <html lang="en-AU">
   <head>
@@ -16,7 +16,7 @@ export function page(title: string, body: string): string {
     <title>${escapeHtml(title)}</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
-  <body>
+  <body${bodyClass ? ` class="${escapeHtml(bodyClass)}"` : ""}>
     <main>
 ${body}
     </main>
